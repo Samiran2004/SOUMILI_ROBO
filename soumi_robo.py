@@ -1,42 +1,70 @@
-# AI GF Chatbot with Emotion Detection and Bilingual Chat (Hindi/English)
-
 import random
 import time
 import speech_recognition as sr
 import pyttsx3
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
+from deep_translator import GoogleTranslator
 
-
+# Initialize text-to-speech engine
 engine = pyttsx3.init()
 engine.setProperty('rate', 145)
 
+# Set female voice if available
+voices = engine.getProperty('voices')
+for voice in voices:
+    if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
+        engine.setProperty('voice', voice.id)
+        break
 
+# Initialize speech recognizer
 recognizer = sr.Recognizer()
 
+# Load multilingual emotion detection model (EmoRoBERTa)
+emotion_model_name = "nateraw/bert-base-uncased-emotion"
 
-emotion_model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
+# Load tokenizer and model (PyTorch version, no TF, no config changes)
 emotion_model = AutoModelForSequenceClassification.from_pretrained(emotion_model_name)
 tokenizer = AutoTokenizer.from_pretrained(emotion_model_name)
+emotion_model.eval()  # Set model to evaluation mode
 
-emotion_labels = ['sadness', 'joy', 'love', 'anger', 'fear', 'surprise']
+# EmoRoBERTa emotion labels
+emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
+
+# Enable translation if needed
+USE_TRANSLATION = True
 
 def detect_emotion(text):
-    inputs = tokenizer(text, return_tensors="pt")
+    print(f"[DEBUG] Original text: {text}")
+
+    # Optionally translate text to English
+    if USE_TRANSLATION:
+        try:
+            translated_text = GoogleTranslator(source='auto', target='en').translate(text)
+            print(f"[DEBUG] Translated text: {translated_text}")
+        except Exception as e:
+            print(f"[DEBUG] Translation failed: {e}")
+            translated_text = text
+    else:
+        translated_text = text
+
+    inputs = tokenizer(translated_text, return_tensors="pt")
     with torch.no_grad():
         logits = emotion_model(**inputs).logits
     probabilities = torch.nn.functional.softmax(logits, dim=1)
+    print(f"[DEBUG] Emotion probabilities: {probabilities}")
     top_emotion = torch.argmax(probabilities).item()
     return emotion_labels[top_emotion]
 
-# Sample responses for emotions
+# Sample responses
 responses = {
     'joy': ["Aww, you're so happy! That makes me smile too!", "Yay! I'm happy because you are."],
     'sadness': ["Oh no, I'm here for you. Want to talk about it?", "I'm sending you a virtual hug."],
     'anger': ["Take a deep breath... I'm here to listen.", "Let's calm down together, okay?"],
     'fear': ["You're safe with me. I'm not going anywhere.", "I understand, but don't worry – I'm here."],
+    'disgust': ["Yuck! What happened? Tell me more.", "That doesn't sound pleasant. I'm here if you need to vent."],
     'surprise': ["Whoa! That's unexpected. Tell me more!", "Surprises can be fun, or scary! What kind is it?"],
-    'love': ["Aww, you're so sweet! I love you too ❤️", "That makes my heart flutter! 😘"]
+    'neutral': ["I'm all ears. What's on your mind?", "Tell me anything you like – I'm listening."]
 }
 
 def speak(text):
